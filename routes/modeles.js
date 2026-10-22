@@ -1,25 +1,24 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs'); // Module pour gérer les dossiers
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const db = require('../db');
 
-//  SÉCURITÉ : Créer le dossier 'uploads' s'il n'existe pas
-const uploadDir = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-  console.log(" Dossier 'uploads' créé automatiquement.");
-}
+// Configuration de Cloudinary avec les variables d'environnement
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
-// Configuration de Multer pour stocker les images
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir); // On utilise le chemin absolu sécurisé
+// Configuration de Multer pour envoyer les images sur Cloudinary
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'sunu-tailleur',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
   },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
 });
 
 const upload = multer({ storage: storage });
@@ -27,36 +26,25 @@ const upload = multer({ storage: storage });
 // --- ROUTE : Ajouter un modèle ---
 router.post('/ajouter', upload.single('photo'), async (req, res) => {
   try {
-    console.log(" Requête d'ajout reçue");
     const { couturier_id, titre, description, prix_min, prix_max, delai_jours } = req.body;
 
-    // Vérification des données reçues
-    if (!couturier_id || !titre) {
-      return res.status(400).json({ error: "Le titre et l'ID du couturier sont obligatoires." });
+    if (!req.file) {
+      return res.status(400).json({ error: "Aucune photo fournie." });
     }
 
-    // Vérification de l'image
-    let photoPath = null;
-    if (req.file) {
-      photoPath = `/uploads/${req.file.filename}`;
-    } else {
-      return res.status(400).json({ error: "Veuillez fournir une photo pour le modèle." });
-    }
+    // L'URL complète de l'image générée par Cloudinary
+    const photoUrl = req.file.path;
 
-    // Insertion dans la base de données
     const newModele = await db.query(
       `INSERT INTO modeles (couturier_id, titre, description, prix_min, prix_max, delai_jours, photos) 
        VALUES ($1, $2, $3, $4, $5, $6, ARRAY[$7]) RETURNING *`,
-      [couturier_id, titre, description, prix_min, prix_max, delai_jours, photoPath]
+      [couturier_id, titre, description, prix_min, prix_max, delai_jours, photoUrl]
     );
 
-    console.log(" Modèle ajouté en base de données");
     res.status(201).json({ message: "Modèle ajouté avec succès !", modele: newModele.rows[0] });
-    
   } catch (err) {
-    //  AFFICHAGE DE L'ERREUR DÉTAILLÉE DANS LE TERMINAL
-    console.error(" ERREUR BACKEND :", err.message); 
-    res.status(500).json({ error: "Erreur serveur : " + err.message });
+    console.error("Erreur Backend:", err.message);
+    res.status(500).json({ error: "Erreur lors de l'ajout du modèle." });
   }
 });
 
@@ -67,7 +55,6 @@ router.get('/couturier/:id', async (req, res) => {
     const modeles = await db.query('SELECT * FROM modeles WHERE couturier_id = $1 ORDER BY date_creation DESC', [id]);
     res.json(modeles.rows);
   } catch (err) {
-    console.error(err.message);
     res.status(500).json({ error: "Erreur serveur." });
   }
 });
@@ -87,7 +74,6 @@ router.get('/tous', async (req, res) => {
     );
     res.json(tousLesModeles.rows);
   } catch (err) {
-    console.error(err.message);
     res.status(500).json({ error: "Erreur serveur." });
   }
 });

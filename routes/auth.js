@@ -9,9 +9,15 @@ router.post('/register', async (req, res) => {
   try {
     const { nom, prenom, telephone, email, mot_de_passe, role, nom_atelier } = req.body;
 
+    // 1. VÉRIFICATION : Le numéro existe-t-il déjà ?
     const userExists = await db.query('SELECT * FROM users WHERE telephone = $1', [telephone]);
     if (userExists.rows.length > 0) {
-      return res.status(400).json({ error: "Ce numéro de téléphone est déjà utilisé." });
+      return res.status(400).json({ error: "Ce numéro de téléphone est déjà utilisé par un autre compte." });
+    }
+
+    // 2. VÉRIFICATION : Le rôle est-il valide ?
+    if (role !== 'client' && role !== 'couturier') {
+       return res.status(400).json({ error: "Rôle invalide." });
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -44,7 +50,7 @@ router.post('/login', async (req, res) => {
   try {
     const { telephone, mot_de_passe } = req.body;
 
-    // On joint la table couturiers pour récupérer l'ID du couturier et son statut
+    // On joint la table couturiers pour récupérer l'ID et le statut
     const user = await db.query(`
       SELECT u.*, c.id as couturier_id, c.verifie 
       FROM users u 
@@ -80,7 +86,7 @@ router.post('/login', async (req, res) => {
         prenom: user.rows[0].prenom, 
         role: user.rows[0].role,
         verifie: user.rows[0].verifie,
-        couturier_id: user.rows[0].couturier_id // <-- L'ID du profil couturier
+        couturier_id: user.rows[0].couturier_id
       } 
     });
 
